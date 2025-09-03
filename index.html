@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>読書記録アプリ</title>
+    <link rel="stylesheet" href="index.css">
+    <!-- jQuery & Chart.js CDN -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <!-- トップページ -->
+    <div id="topPage" class="page top-container">
+        <div class="top-overlay">
+            <h1 class="top-title">☕ 夜更けの読書室 ☕</h1>
+            <p class="top-subtitle">お気に入りの一冊をみんなとシェアしよう</p>
+            <button id="loginBtn" class="top-btn">マイページへ</button><br><br>
+            <button id="viewAllBtn" class="top-btn">みんなのおすすめを見る</button>
+        </div>
+    </div>
+
+
+    <!-- ログインページ -->
+    <div id="loginPage" class="page hidden login-container">
+        <div class="login-overlay">
+            <h2>📖 ようこそ読書カフェへ ☕</h2>
+            <p class="login-subtitle">お気に入りの一冊をみんなとシェアしましょう</p>
+            <div class="login-box">
+                <input type="text" id="loginName" placeholder="ユーザー名を入力してください"><br><br>
+                <button id="doLogin" class="login-btn">ログイン</button><br><br>
+                <button class="homeBtn back-btn">🏠 ホームに戻る</button>
+            </div>
+        </div>
+    </div>
+
+
+    <div id="myPage" class="page hidden">
+        <h2 id="welcomeUser"></h2>
+        <!-- 「本の登録」部分を card-form で囲む -->
+        <div class="card-form">
+            <h3>本の登録</h3>
+        
+            <div class="form-row">
+                <label for="title">タイトル</label>
+                <input type="text" id="title" placeholder="タイトル">
+            </div>
+        
+            <div class="form-row">
+                <label for="author">著者名</label>
+                <input type="text" id="author" placeholder="著者名">
+            </div>
+        
+            <div class="form-row">
+                <label for="year">読んだ年</label>
+                <input type="number" id="year" placeholder="2025">
+        
+                <label for="month">読んだ月</label>
+                <input type="number" id="month" placeholder="1-12">
+            </div>
+        
+            <div class="form-row">
+                <label for="lend">貸出可否</label>
+                <select id="lend">
+                    <option value="OK">貸出OK</option>
+                    <option value="NG">貸出NG</option>
+                </select>
+            </div>
+        
+            <div class="form-row">
+                <label for="comment">コメント</label>
+                <textarea id="comment" placeholder="コメント (任意)"></textarea>
+            </div>
+        
+            <div class="form-row">
+                <label for="rating">おすすめ度</label>
+                <select id="rating">
+                    <option value="">未選択</option>
+                    <option value="1">★</option>
+                    <option value="2">★★</option>
+                    <option value="3">★★★</option>
+                    <option value="4">★★★★</option>
+                    <option value="5">★★★★★</option>
+                </select>
+            </div>
+        
+            <div class="form-row center">
+                <button id="addBook">追加</button>
+            </div>
+        </div>
+
+
+        <h3>自分の登録した本</h3>
+        <div id="myBooks"></div>
+
+        <h3>自分の読書履歴グラフ（過去12か月）</h3>
+        <canvas id="readingChart" width="100" height="50"></canvas>
+
+        <button class="homeBtn">ホームに戻る</button>
+    </div>
+
+    <div id="allPage" class="page hidden">
+        <h2>みんなのおすすめ</h2>
+        <div id="allBooks"></div>
+        <button class="homeBtn">ホームに戻る</button>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let chartInstance = null;
+
+        // ページ切替
+        function showPage(id) {
+            $(".page").addClass("hidden");
+            $(id).removeClass("hidden");
+        }
+
+        // ログイン
+        $("#loginBtn").click(() => showPage("#loginPage"));
+        $("#doLogin").click(() => {
+            let name = $("#loginName").val().trim();
+            if (!name) { alert("ユーザー名を入力してください"); return; }
+            currentUser = name;
+            $("#welcomeUser").text(name + " さんのマイページ");
+            renderMyBooks();
+            showPage("#myPage");
+        });
+        $(".homeBtn").click(() => showPage("#topPage"));
+
+        // 本追加
+        $("#addBook").click(() => {
+            if (!currentUser) return;
+            let book = {
+                title: $("#title").val(),
+                author: $("#author").val(),
+                year: parseInt($("#year").val()),
+                month: parseInt($("#month").val()),
+                lend: $("#lend").val(),
+                comment: $("#comment").val(),
+                rating: $("#rating").val()
+            };
+            if (!book.title || !book.author || !book.year || !book.month) { alert("必須項目を入力してください"); return; }
+            let data = JSON.parse(localStorage.getItem("readingAppUsers") || "{}");
+            if (!data[currentUser]) data[currentUser] = [];
+            data[currentUser].push(book);
+            localStorage.setItem("readingAppUsers", JSON.stringify(data));
+            $("#title,#author,#year,#month,#comment").val("");
+            $("#rating").val("");
+            renderMyBooks();
+        });
+
+        // 自分の本一覧＋グラフ
+        let editIndex = null; // 編集中の本のインデックスを保持
+
+            function renderMyBooks() {
+                let data = JSON.parse(localStorage.getItem("readingAppUsers") || "{}");
+                let books = data[currentUser] || [];
+                let html = "";
+                books.forEach((b, i) => {
+                    let stars = "★".repeat(b.rating || 0);
+                    html += `<div class="book-entry">
+            <b>${b.title}</b> (${b.author}) ${b.year}/${b.month}<br>
+            ${b.comment || ""} ${stars}<br>
+            貸出: ${b.lend}
+            <button onclick="editBook(${i})">編集</button>
+            <button onclick="deleteBook(${i})">削除</button>
+        </div>`;
+                });
+                $("#myBooks").html(html);
+                drawChart(books);
+            }
+
+            function deleteBook(index) {
+                let data = JSON.parse(localStorage.getItem("readingAppUsers") || "{}");
+                data[currentUser].splice(index, 1);
+                localStorage.setItem("readingAppUsers", JSON.stringify(data));
+                renderMyBooks();
+            }
+
+            function editBook(index) {
+                let data = JSON.parse(localStorage.getItem("readingAppUsers") || "{}");
+                let book = data[currentUser][index];
+
+                // 入力フォームに値をセット
+                $("#title").val(book.title);
+                $("#author").val(book.author);
+                $("#year").val(book.year);
+                $("#month").val(book.month);
+                $("#lend").val(book.lend);
+                $("#comment").val(book.comment);
+                $("#rating").val(book.rating);
+
+                editIndex = index;
+
+                // ボタンのラベルを「更新」に変更
+                $("#addBook").text("更新");
+            }
+
+            // 「追加/更新」ボタンの動作を修正
+            $("#addBook").off("click").on("click", () => {
+                if (!currentUser) return;
+                let book = {
+                    title: $("#title").val(),
+                    author: $("#author").val(),
+                    year: parseInt($("#year").val()),
+                    month: parseInt($("#month").val()),
+                    lend: $("#lend").val(),
+                    comment: $("#comment").val(),
+                    rating: $("#rating").val()
+                };
+                if (!book.title || !book.author || !book.year || !book.month) {
+                    alert("必須項目を入力してください");
+                    return;
+                }
+
+                let data = JSON.parse(localStorage.getItem("readingAppUsers") || "{}");
+                if (!data[currentUser]) data[currentUser] = [];
+
+                if (editIndex !== null) {
+                    // 編集モードなら上書き
+                    data[currentUser][editIndex] = book;
+                    editIndex = null;
+                    $("#addBook").text("追加");
+                } else {
+                    // 新規追加
+                    data[currentUser].push(book);
+                }
+
+                localStorage.setItem("readingAppUsers", JSON.stringify(data));
+
+                // 入力フォームをリセット
+                $("#title,#author,#year,#month,#comment").val("");
+                $("#rating").val("");
+
+                renderMyBooks();
+            });
+
+
+        // グラフ描画
+        function drawChart(books) {
+            let ctx = document.getElementById("readingChart");
+            if (chartInstance) { chartInstance.destroy(); }
+            let now = new Date();
+            let labels = []; let counts = [];
+            for (let i = 11; i >= 0; i--) {
+                let d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                let ym = `${d.getFullYear()}-${d.getMonth() + 1}`;
+                labels.push(ym);
+                counts.push(0);
+            }
+            books.forEach(b => {
+                let ym = `${b.year}-${b.month}`;
+                let idx = labels.indexOf(ym);
+                if (idx >= 0) counts[idx]++;
+            });
+            chartInstance = new Chart(ctx, {
+                type: "line",
+                data: { labels: labels, datasets: [{ label: "冊数", data: counts, fill: false, borderColor: "#8B4513", tension: 0 }] },
+                options: { scales: { y: { beginAtZero: true } } }
+            });
+        }
+
+        // みんなのおすすめ表示
+        $("#viewAllBtn").click(() => {
+            let data = JSON.parse(localStorage.getItem("readingAppUsers") || "{}");
+            let html = "";
+            for (let user in data) {
+                data[user].forEach((b, idx) => {
+                    let stars = "★".repeat(b.rating || 0);
+                    let borrowList = (b.borrowers || []).join(", ");
+                    html += `<div class="book-entry">
+        <b>${b.title}</b> (${b.author}) ${b.year}/${b.month}<br>
+        ${b.comment || ""} ${stars}<br>
+        登録者: ${user} / 貸出: ${b.lend}<br>`;
+                    if (b.lend === "OK") {
+                        html += `<button onclick="toggleBorrow('${user}',${idx})">借りたい！</button>`;
+                    }
+                    if (borrowList) {
+                        html += `<br>借りたい人: ${borrowList}`;
+                    }
+                    html += "</div>";
+                });
+            }
+            $("#allBooks").html(html);
+            showPage("#allPage");
+        });
+
+        // 借りたい！トグル
+        function toggleBorrow(owner, index) {
+            let borrower = prompt("あなたのユーザー名を入力してください");
+            if (!borrower) return;
+            let data = JSON.parse(localStorage.getItem("readingAppUsers") || "{}");
+            let book = data[owner][index];
+            if (!book.borrowers) book.borrowers = [];
+            let pos = book.borrowers.indexOf(borrower);
+            if (pos >= 0) {
+                book.borrowers.splice(pos, 1); // 取消
+            } else {
+                book.borrowers.push(borrower); // 追加
+            }
+            localStorage.setItem("readingAppUsers", JSON.stringify(data));
+            $("#viewAllBtn").click();
+        }
+    </script>
+</body>
+
+</html>
